@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [postgis(map: "postgis"), vector(map: "vector")]
+}
+
+enum UserRole {
+  CLIENT
+  AGENT
+  ADMIN
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  PENDING
+  RENTED
+  SOLD
+  ARCHIVED
+}
+
+enum ListingKind {
+  RENT
+  SALE
+}
+
+enum ConversationRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model User {
+  id            String         @id @default(cuid()) @db.VarChar(30)
+  email         String         @unique @db.VarChar(320)
+  displayName   String?        @db.VarChar(120)
+  role          UserRole       @default(CLIENT)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(6)
+  listings      Listing[]      @relation("ListingAgent")
+  conversations Conversation[]
+
+  @@map("users")
+}
+
+model Listing {
+  id             String        @id @default(cuid()) @db.VarChar(30)
+  agentId        String?       @db.VarChar(30)
+  agent          User?         @relation("ListingAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  slug           String        @unique @db.VarChar(180)
+  title          String        @db.VarChar(180)
+  description    String        @db.Text
+  rawMetadata    Json          @default("{}")
+  kind           ListingKind
+  status         ListingStatus @default(DRAFT)
+  currency       String        @default("USD") @db.Char(3)
+  priceCents     BigInt
+  bedrooms       Int
+  bathrooms      Decimal       @db.Decimal(3, 1)
+  squareFeet     Int?
+  neighborhood   String        @db.VarChar(120)
+  city           String        @db.VarChar(120)
+  region         String        @db.VarChar(120)
+  address        String?       @db.VarChar(255)
+  latitude       Decimal       @db.Decimal(9, 6)
+  longitude      Decimal       @db.Decimal(9, 6)
+  /// Maintained by the SQL migration / write service. SRID 4326 enables spatial indexes.
+  location       Unsupported("geography(Point,4326)")?
+  amenities      String[]      @default([])
+  imageUrls      String[]      @default([])
+  /// pgvector's native 1,536-dimension column. Access it through typed raw SQL.
+  embedding      Unsupported("vector(1536)")?
+  embeddingModel String?       @db.VarChar(80)
+  embeddedAt     DateTime?     @db.Timestamptz(6)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(6)
+  vectorMetrics  VectorMetric[]
+  matches        ConversationListing[]
+
+  @@index([status, kind, priceCents])
+  @@index([region, neighborhood])
+  @@index([agentId])
+  @@map("listings")
+}
+
+model Conversation {
+  id        String                @id @default(cuid()) @db.VarChar(30)
+  userId    String                @db.VarChar(30)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime              @updatedAt @db.Timestamptz(6)
+  messages  ConversationMessage[]
+  matches   ConversationListing[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String           @id @default(cuid()) @db.VarChar(30)
+  conversationId String           @db.VarChar(30)
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           ConversationRole
+  content        String           @db.Text
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+model ConversationListing {
+  conversationId String       @db.VarChar(30)
+  listingId      String       @db.VarChar(30)
+  rank           Int
+  similarity     Decimal      @db.Decimal(6, 5)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  listing        Listing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, listingId])
+  @@index([listingId])
+  @@map("conversation_listings")
+}
+
+model VectorMetric {
+  id               String   @id @default(cuid()) @db.VarChar(30)
+  listingId        String   @db.VarChar(30)
+  listing          Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  embeddingModel   String   @db.VarChar(80)
+  dimensions       Int
+  cosineSimilarity Decimal  @db.Decimal(6, 5)
+  queryHash        String   @db.Char(64)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([listingId, createdAt(sort: Desc)])
+  @@index([embeddingModel, createdAt(sort: Desc)])
+  @@map("vector_metrics")
+}

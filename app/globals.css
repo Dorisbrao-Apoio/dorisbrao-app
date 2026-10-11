@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: 40 20% 98%;
+  --foreground: 155 22% 19%;
+  --card: 0 0% 100%;
+  --muted: 40 13% 94%;
+  --muted-foreground: 25 8% 43%;
+  --border: 35 12% 87%;
+  --primary: 155 22% 19%;
+  --primary-foreground: 40 20% 98%;
+  --ring: 155 22% 36%;
+  --destructive: 0 66% 52%;
+}
+
+* { border-color: hsl(var(--border)); }
+html { scroll-behavior: smooth; }
+body { min-height: 100dvh; background: #faf9f6; color: #243c35; font-family: Arial, Helvetica, sans-serif; -webkit-font-smoothing: antialiased; }
+::selection { background: #dce6dc; color: #243c35; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+
+@layer components {
+  .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[.2em] text-[#9a755f]; }
+  .section-title { @apply max-w-3xl font-serif text-[clamp(2.2rem,5vw,4.1rem)] leading-[1.04] tracking-[-.045em] text-[#243c35]; }
+  .form-label { @apply mb-2 block text-[10px] font-semibold uppercase tracking-[.12em] text-stone-500; }
+  .form-control { @apply h-11 w-full rounded-xl border border-stone-200 bg-white px-3 text-sm text-[#243c35] outline-none transition placeholder:text-stone-300 focus:border-[#6e8a79] focus:ring-2 focus:ring-[#6e8a79]/15; }
+  .filter-label { @apply mb-2 block text-[10px] font-bold uppercase tracking-[.13em] text-stone-500; }
+  .filter-input { @apply mt-1 h-11 w-full rounded-xl border border-stone-200 bg-white px-3 text-xs text-[#243c35] outline-none transition focus:border-[#6e8a79] focus:ring-2 focus:ring-[#6e8a79]/15; }
+}
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
