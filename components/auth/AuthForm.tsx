@@ -3,24 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, Building2, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 
-import { writeSession } from "@/lib/data/browser-store";
-import type { DemoRole } from "@/lib/data/types";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const roles: { id: DemoRole; title: string; description: string; icon: typeof UserRound }[] = [
-  { id: "BUYER", title: "Home seeker", description: "Explore and save homes", icon: UserRound },
-  { id: "AGENT", title: "Agent", description: "Manage listings and leads", icon: Building2 },
-  { id: "ADMIN", title: "Administrator", description: "Review the full workspace", icon: ShieldCheck },
-];
-
-export function AuthForm({ mode, initialRole }: { mode: "login" | "signup"; initialRole?: string }): JSX.Element {
+export function AuthForm({ mode }: { mode: "login" | "signup" }): JSX.Element {
   const router = useRouter();
-  const [role, setRole] = useState<DemoRole>(initialRole === "AGENT" || initialRole === "ADMIN" ? initialRole : "BUYER");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState(false);
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError("");
+    setNotice("");
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const email = String(data.get("email") ?? "").trim().toLowerCase();
@@ -28,9 +24,43 @@ export function AuthForm({ mode, initialRole }: { mode: "login" | "signup"; init
     if (mode === "signup" && name.length < 2) { setError("Please enter your name."); return; }
     if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Enter a valid email address."); return; }
     if (password.length < 8) { setError("Use at least 8 characters for your password."); return; }
-    writeSession({ name: name || email.split("@")[0] || "Dorisbrao member", email, role });
-    router.push(role === "BUYER" ? "/search" : "/dashboard");
-    router.refresh();
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) {
+      setError("Account sign-in is not configured yet. Please try again later.");
+      return;
+    }
+
+    setPending(true);
+    try {
+      if (mode === "signup") {
+        const { data: result, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: name },
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+        if (authError) throw authError;
+        if (!result.session) {
+          setNotice("Check your email for a verification link. You can sign in after verifying your address.");
+          return;
+        }
+      } else {
+        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        if (authError) throw authError;
+      }
+
+      const profileResponse = await fetch("/api/auth/profile", { cache: "no-store" });
+      if (!profileResponse.ok) throw new Error("Your email must be verified before you can use your account.");
+      const profile = await profileResponse.json() as { role: "CLIENT" | "AGENT" | "ADMIN" };
+      router.replace(profile.role === "CLIENT" ? "/search" : "/dashboard");
+      router.refresh();
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : "Unable to authenticate. Please try again.");
+    } finally {
+      setPending(false);
+    }
   }
 
   return <main className="grid min-h-[calc(100vh-76px)] bg-[#faf9f6] lg:grid-cols-[1fr_1fr]">
@@ -42,12 +72,12 @@ export function AuthForm({ mode, initialRole }: { mode: "login" | "signup"; init
         {mode === "signup" && <label className="block"><span className="form-label">Your name</span><input name="name" required minLength={2} maxLength={100} autoComplete="name" className="form-control" placeholder="Full name" /></label>}
         <label className="block"><span className="form-label">Email address</span><input name="email" type="email" required maxLength={254} autoComplete="email" className="form-control" placeholder="you@example.com" /></label>
         <label className="block"><span className="form-label">Password <span className="font-normal text-stone-400">(8 characters minimum)</span></span><input name="password" type="password" required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} className="form-control" placeholder="••••••••••" /></label>
-        <fieldset><legend className="form-label">I’m here as a</legend><div className="mt-2 grid gap-2">{roles.map(({ id, title, description, icon: Icon }) => <button key={id} type="button" aria-pressed={role === id} onClick={() => setRole(id)} className={`flex items-center gap-3 rounded-2xl border p-3.5 text-left transition ${role === id ? "border-[#476557] bg-[#eef2ec]" : "border-stone-200 bg-white hover:border-stone-300"}`}><span className={`grid size-10 place-items-center rounded-full ${role === id ? "bg-[#dce6dc] text-[#365646]" : "bg-stone-100 text-stone-500"}`}><Icon className="size-4" /></span><span className="flex-1"><span className="block text-xs font-semibold text-[#243c35]">{title}</span><span className="mt-1 block text-[10px] text-stone-500">{description}</span></span><span className={`grid size-4 place-items-center rounded-full border ${role === id ? "border-[#476557] bg-[#476557]" : "border-stone-300"}`}>{role === id && <span className="size-1.5 rounded-full bg-white" />}</span></button>)}</div></fieldset>
         {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
-        <button type="submit" className="mt-1 flex h-12 items-center justify-center gap-2 rounded-full bg-[#243c35] text-sm font-semibold text-white transition hover:bg-[#35564c]">{mode === "login" ? "Sign in" : "Create account"}<ArrowRight className="size-4" /></button>
+        {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">{notice}</p>}
+        <button type="submit" disabled={pending} className="mt-1 flex h-12 items-center justify-center gap-2 rounded-full bg-[#243c35] text-sm font-semibold text-white transition hover:bg-[#35564c] disabled:cursor-wait disabled:opacity-60">{pending ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}<ArrowRight className="size-4" /></button>
       </form>
       <p className="mt-6 text-center text-xs text-stone-500">{mode === "login" ? "New to Dorisbrao?" : "Already have an account?"} <Link href={mode === "login" ? "/signup" : "/login"} className="font-semibold text-[#243c35] underline underline-offset-4">{mode === "login" ? "Create an account" : "Sign in"}</Link></p>
-      <div className="mt-8 rounded-xl border border-[#e5e2d9] bg-[#f3f1eb] p-3 text-[10px] leading-5 text-stone-500"><strong className="text-stone-600">Interactive demo:</strong> account details and role are stored in this browser only. Connect a verified authentication provider before using real customer accounts.</div>
+      <p className="mt-8 text-center text-[10px] leading-5 text-stone-400">Sign-in is secured by verified email authentication. New accounts start as home seekers.</p>
     </div></section>
   </main>;
 }

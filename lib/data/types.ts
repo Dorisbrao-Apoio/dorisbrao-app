@@ -34,12 +34,13 @@ export interface Property {
   longitude: number;
 }
 
-export type DemoRole = "BUYER" | "AGENT" | "ADMIN";
+export type AccountRole = "CLIENT" | "AGENT" | "ADMIN";
 
-export interface DemoSession {
+export interface AccountSession {
+  id: string;
   name: string;
   email: string;
-  role: DemoRole;
+  role: AccountRole;
 }
 
 export interface PropertyLead {

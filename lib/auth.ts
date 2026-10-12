@@ -23,7 +23,7 @@ function decodeSegment(segment: string): Buffer | null {
   }
 }
 
-export async function getAuthenticatedUserId(request: NextRequest): Promise<string | null> {
+async function getLegacyAuthenticatedUserId(request: NextRequest): Promise<string | null> {
   const secret = process.env.AUTH_SESSION_SECRET;
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (!secret || !token) return null;
@@ -62,4 +62,39 @@ export async function getAuthenticatedUserId(request: NextRequest): Promise<stri
   } catch {
     return null;
   }
+}
+
+export async function getAuthenticatedAccount() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+  const [{ prisma }, { createSupabaseRequestClient }] = await Promise.all([
+    import("@/lib/prisma"),
+    import("@/lib/supabase/server"),
+  ]);
+  const supabase = createSupabaseRequestClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.auth.getUser();
+  const authUser = data.user;
+  if (error || !authUser?.email || !authUser.email_confirmed_at) return null;
+
+  const displayName = typeof authUser.user_metadata?.full_name === "string"
+    ? authUser.user_metadata.full_name.trim().slice(0, 120)
+    : "";
+  return prisma.user.upsert({
+    where: { email: authUser.email.toLowerCase() },
+    update: {},
+    create: {
+      email: authUser.email.toLowerCase(),
+      displayName: displayName || authUser.email.split("@")[0],
+      role: "CLIENT",
+    },
+    select: { id: true, email: true, displayName: true, role: true },
+  });
+}
+
+export async function getAuthenticatedUserId(request: NextRequest): Promise<string | null> {
+  const legacyUserId = await getLegacyAuthenticatedUserId(request);
+  if (legacyUserId) return legacyUserId;
+  const account = await getAuthenticatedAccount();
+  return account?.id ?? null;
 }

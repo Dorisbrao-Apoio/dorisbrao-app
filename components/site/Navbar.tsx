@@ -4,17 +4,24 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 
-import { readSession, writeSession } from "@/lib/data/browser-store";
-import type { DemoSession } from "@/lib/data/types";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { AccountSession } from "@/lib/data/types";
 
 export function Navbar(): JSX.Element {
-  const [session, setSession] = useState<DemoSession | null>(null);
+  const [session, setSession] = useState<AccountSession | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => setSession(readSession()), []);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/profile", { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() as Promise<AccountSession> : null)
+      .then((profile) => { if (!cancelled) setSession(profile); })
+      .catch(() => { if (!cancelled) setSession(null); });
+    return () => { cancelled = true; };
+  }, []);
 
-  function signOut() {
-    writeSession(null);
+  async function signOut() {
+    await createSupabaseBrowserClient()?.auth.signOut();
     setSession(null);
     setMobileOpen(false);
   }
@@ -34,8 +41,8 @@ export function Navbar(): JSX.Element {
       <div className="hidden items-center gap-3 md:flex">
         {session ? <>
           <span className="mr-1 max-w-32 truncate text-xs text-stone-500">Hi, {session.name.split(" ")[0]}</span>
-          <Link href={session.role === "BUYER" ? "/search?saved=1" : "/dashboard"} className="rounded-full border border-stone-300 px-4 py-2 text-xs font-semibold text-[#243c35] transition hover:border-[#243c35]">
-            {session.role === "BUYER" ? "Saved homes" : "Workspace"}
+          <Link href={session.role === "CLIENT" ? "/search?saved=1" : "/dashboard"} className="rounded-full border border-stone-300 px-4 py-2 text-xs font-semibold text-[#243c35] transition hover:border-[#243c35]">
+            {session.role === "CLIENT" ? "Saved homes" : "Workspace"}
           </Link>
           <button onClick={signOut} className="p-2 text-xs text-stone-500 hover:text-[#243c35]">Sign out</button>
         </> : <>

@@ -1,9 +1,8 @@
 import { seedProperties } from "@/lib/data/properties";
-import type { DemoSession, Property, PropertyLead } from "@/lib/data/types";
+import type { Property, PropertyLead } from "@/lib/data/types";
 
 const PROPERTY_KEY = "dorisbrao-properties-v1";
 const LEAD_KEY = "dorisbrao-leads-v1";
-const SESSION_KEY = "dorisbrao-demo-session-v1";
 const SAVED_KEY = "dorisbrao-saved-v1";
 export const SAVED_PROPERTIES_CHANGED = "dorisbrao:saved-properties-changed";
 
@@ -31,15 +30,6 @@ export function readLeads(): PropertyLead[] {
 export function saveLead(lead: Omit<PropertyLead, "id" | "createdAt">): void {
   const next: PropertyLead = { ...lead, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
   window.localStorage.setItem(LEAD_KEY, JSON.stringify([next, ...readLeads()]));
-}
-
-export function readSession(): DemoSession | null {
-  return readJson<DemoSession | null>(SESSION_KEY, null);
-}
-
-export function writeSession(session: DemoSession | null): void {
-  if (session) window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  else window.localStorage.removeItem(SESSION_KEY);
 }
 
 export function readSavedPropertyIds(): string[] {
