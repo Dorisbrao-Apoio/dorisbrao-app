@@ -65,7 +65,7 @@ async function getLegacyAuthenticatedUserId(request: NextRequest): Promise<strin
 }
 
 export async function getAuthenticatedAccount() {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)) return null;
   const [{ prisma }, { createSupabaseRequestClient }] = await Promise.all([
     import("@/lib/prisma"),
     import("@/lib/supabase/server"),
