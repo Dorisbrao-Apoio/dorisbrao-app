@@ -1,8 +1,3 @@
-import { seedProperties } from "@/lib/data/properties";
-import type { Property, PropertyLead } from "@/lib/data/types";
-
-const PROPERTY_KEY = "dorisbrao-properties-v1";
-const LEAD_KEY = "dorisbrao-leads-v1";
 const SAVED_KEY = "dorisbrao-saved-v1";
 export const SAVED_PROPERTIES_CHANGED = "dorisbrao:saved-properties-changed";
 
@@ -13,23 +8,6 @@ function readJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-export function readProperties(): Property[] {
-  return readJson(PROPERTY_KEY, seedProperties);
-}
-
-export function writeProperties(properties: Property[]): void {
-  window.localStorage.setItem(PROPERTY_KEY, JSON.stringify(properties));
-}
-
-export function readLeads(): PropertyLead[] {
-  return readJson(LEAD_KEY, []);
-}
-
-export function saveLead(lead: Omit<PropertyLead, "id" | "createdAt">): void {
-  const next: PropertyLead = { ...lead, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
-  window.localStorage.setItem(LEAD_KEY, JSON.stringify([next, ...readLeads()]));
 }
 
 export function readSavedPropertyIds(): string[] {

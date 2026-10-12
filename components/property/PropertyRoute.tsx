@@ -5,18 +5,22 @@ import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
 import { PropertyDetail } from "@/components/property/PropertyDetail";
-import { readProperties } from "@/lib/data/browser-store";
-import { seedProperties } from "@/lib/data/properties";
 import type { Property } from "@/lib/data/types";
 
 export function PropertyRoute({ slug }: { slug: string }): JSX.Element {
-  const [property, setProperty] = useState<Property | null>(() => seedProperties.find((item) => item.slug === slug) ?? null);
+  const [property, setProperty] = useState<Property | null>(null);
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    const stored = readProperties().find((item) => item.slug === slug);
-    if (stored) setProperty(stored);
-    setChecked(true);
+    const controller = new AbortController();
+    setProperty(null);
+    setChecked(false);
+    fetch(`/api/listings/${encodeURIComponent(slug)}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? await response.json() as Property : null)
+      .then((result) => { if (!controller.signal.aborted) setProperty(result); })
+      .catch(() => { if (!controller.signal.aborted) setProperty(null); })
+      .finally(() => { if (!controller.signal.aborted) setChecked(true); });
+    return () => controller.abort();
   }, [slug]);
 
   if (property) return <PropertyDetail property={property} />;

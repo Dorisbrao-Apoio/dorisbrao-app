@@ -1,6 +1,6 @@
 # Dorisbrao Real Estate architecture
 
-Dorisbrao is a responsive Next.js App Router application focused on property discovery in Angola. The public browsing experience is immediately usable with typed Luanda seed data. Supabase Auth verifies account email and credentials; Prisma and PostgreSQL store application profiles and roles. Listing edits, saved homes, and inquiries still use browser storage.
+Dorisbrao is a responsive Next.js App Router application focused on property discovery in Angola. Supabase Auth verifies account email and credentials; Prisma and PostgreSQL store application profiles, listings, and inquiries. Saved homes remain browser-local.
 
 ## Application structure
 
@@ -12,7 +12,9 @@ app/
   login/page.tsx                   Supabase email/password sign-in
   signup/page.tsx                  Supabase email verification and signup
   auth/callback/route.ts           Supabase email confirmation callback
-  dashboard/page.tsx               Agent and administrator workspace
+  api/listings/                    Public listing reads and role-protected listing management
+  api/inquiries/                   Public inquiry submission and role-protected inbox
+  dashboard/page.tsx               Database-backed agent and administrator workspace
   api/                             Existing semantic search and AI route handlers
 components/
   auth/AuthForm.tsx                Supabase authentication form
@@ -24,13 +26,15 @@ components/
 lib/
   data/types.ts                    Property, Agent, Lead, and demo session interfaces
   data/properties.ts               Interactive seed listings and agent profiles
-  data/browser-store.ts            Browser-persisted demo state
+  data/browser-store.ts            Browser-persisted saved-home IDs
+  listings.ts                      Prisma listing to website property mapping
   auth.ts                          Verified Supabase session and database profile lookup
   supabase/                         Browser and server Supabase clients
   search/semantic.ts               PostgreSQL/pgvector retrieval service
 prisma/
   schema.prisma                    PostgreSQL users, listings, conversations, and metrics
   migrations/                      PostGIS and pgvector schema setup
+  seed-properties.mjs              Idempotent seed data for the initial public collection
 tests/
   auth.test.mjs                    JWT session verification coverage
   validation.test.mjs              Request and listing schema coverage
@@ -43,13 +47,15 @@ npm install
 npm run dev
 ```
 
-The app opens with eight example homes in Luanda neighborhoods. Search and filters update immediately. Listing pages include photo lightboxes and a principal-and-interest mortgage estimate. Tour and contact requests appear under **Dashboard → Inquiries**. Agent and administrator workspace edits remain local to the current browser.
+Listing search and detail pages read published records from PostgreSQL. Agent and administrator edits and visitor inquiries are stored in PostgreSQL and are visible across devices. The initial eight example listings can be inserted with `npm run db:seed:listings` after applying migrations.
 
 ## Data and authentication boundaries
 
-- `lib/data/properties.ts` provides seed `Property` and `Agent` records. Browser storage overlays the property seed and stores saved homes and leads.
-- Supabase Auth verifies email and password. New accounts receive the `CLIENT` role in Prisma; agent and admin access must be assigned in the database by an administrator. The dashboard's listing and lead data are still browser-local and are not production storage.
-- Dashboard listing changes and leads are local to one browser and do not write to PostgreSQL. The existing Prisma schema and migrations describe the PostgreSQL data foundation; a production integration still needs server-side listing and lead CRUD endpoints.
-- Semantic search and AI routes remain separate server features and use the configured database and AI provider. The home and archive currently use the local seed data so they work without credentials or a database connection.
+- `lib/data/properties.ts` provides initial Luanda listings. Production builds run `prisma migrate deploy` and `npm run db:seed:listings`; seeding skips existing rows.
+- Supabase Auth verifies email and password. New accounts receive the `CLIENT` role in Prisma; agent and admin access must be assigned in the database by an administrator. Saved homes remain local to each browser; listings and inquiries are shared database records.
+- `GET /api/listings` returns published listings publicly and role-filtered records to agents/admins. Listing create, update, and delete endpoints require an authenticated agent/admin; agents can edit only assigned listings.
+- `POST /api/inquiries` stores a visitor request against an active listing. The authenticated inquiry inbox is scoped to an agent's assigned listings; admins can see all inquiries.
+- Semantic search and AI routes remain separate server features and use the configured database and AI provider. Public listing pages need the database migrations and initial seed data to be present.
+- Existing listing and inquiry records previously stored in an individual browser's local storage cannot be recovered from the server. Seed the public collection once, then create new listings and inquiries through the database-backed application.
 - Add `NEXT_PUBLIC_SUPABASE_URL` and either `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the deployment environment, and allow `https://www.dorisbrao.ao/auth/callback` in the Supabase Auth redirect URL settings. Supabase middleware refreshes its HttpOnly cookie session; server routes verify the user and load the trusted role from Prisma.
 - Existing `dorisbrao_session` tokens signed by the issuing service remain accepted for the API routes that already use them.

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { Check, X } from "lucide-react";
 
-import { saveLead } from "@/lib/data/browser-store";
 import type { PropertyLead } from "@/lib/data/types";
 
 type Props = { propertyId: string; propertyTitle: string; type: PropertyLead["type"]; onClose: () => void };
@@ -11,6 +10,7 @@ type Props = { propertyId: string; propertyTitle: string; type: PropertyLead["ty
 export function LeadCaptureModal({ propertyId, propertyTitle, type, onClose }: Props): JSX.Element {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -18,7 +18,7 @@ export function LeadCaptureModal({ propertyId, propertyTitle, type, onClose }: P
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
@@ -26,8 +26,21 @@ export function LeadCaptureModal({ propertyId, propertyTitle, type, onClose }: P
     const phone = String(data.get("phone") ?? "").trim();
     const message = String(data.get("message") ?? "").trim();
     if (!name || !email) { setError("Please add your name and email so the agent can get back to you."); return; }
-    saveLead({ propertyId, propertyTitle, name, email, phone, message: message || (type === "TOUR" ? "I’d like to schedule a tour." : "I’d like to learn more about this property."), type });
-    setError(""); setSent(true);
+    setPending(true);
+    try {
+      const response = await fetch("/api/inquiries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ propertyId, name, email, phone, message: message || (type === "TOUR" ? "I’d like to schedule a tour." : "I’d like to learn more about this property."), type }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Unable to save your request.");
+      setError(""); setSent(true);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unable to save your request. Please try again.");
+    } finally {
+      setPending(false);
+    }
   }
 
   return <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-[#14211d]/60 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -40,7 +53,7 @@ export function LeadCaptureModal({ propertyId, propertyTitle, type, onClose }: P
           <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="form-label">Email address</span><input type="email" name="email" autoComplete="email" required maxLength={254} className="form-control" placeholder="you@example.com" /></label><label className="block"><span className="form-label">Phone <span className="font-normal text-stone-400">(optional)</span></span><input type="tel" name="phone" autoComplete="tel" maxLength={30} className="form-control" placeholder="(555) 000-0000" /></label></div>
           <label className="block"><span className="form-label">{type === "TOUR" ? "Anything we should know?" : "Your message"}</span><textarea name="message" rows={3} maxLength={1000} className="form-control resize-y" placeholder={type === "TOUR" ? "Preferred days or times, questions, accessibility needs…" : "Ask us about the home…"} /></label>
           {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
-          <button type="submit" className="mt-1 rounded-full bg-[#243c35] px-6 py-4 text-sm font-semibold text-white transition hover:bg-[#35564c]">{type === "TOUR" ? "Request a private tour" : "Send to the agent"}</button>
+          <button type="submit" disabled={pending} className="mt-1 rounded-full bg-[#243c35] px-6 py-4 text-sm font-semibold text-white transition hover:bg-[#35564c] disabled:cursor-wait disabled:opacity-60">{pending ? "Sending…" : type === "TOUR" ? "Request a private tour" : "Send to the agent"}</button>
           <p className="text-center text-[10px] leading-5 text-stone-400">By sending, you agree to be contacted about this property. Your details stay with Dorisbrao.</p>
         </form>
       </>}

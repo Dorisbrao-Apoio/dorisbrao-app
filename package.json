@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma migrate deploy && npm run db:seed:listings && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test tests/*.test.mjs",
     "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate"
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:seed:listings": "node --disable-warning=ExperimentalWarning --experimental-strip-types prisma/seed-properties.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -18,6 +20,7 @@
     "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/postcss": "^4.3.3",
     "@tanstack/react-query": "^5.0.0",
+    "@vercel/speed-insights": "^2.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.300.0",

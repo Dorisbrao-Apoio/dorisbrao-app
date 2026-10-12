@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpRight, Building2, Check, ChevronDown, Plus, Eye, Home, Inbox, Pencil, Search, Trash2, Users } from "lucide-react";
 
-import { readLeads, readProperties, writeProperties } from "@/lib/data/browser-store";
-import { seedProperties } from "@/lib/data/properties";
 import type { AccountSession, Property, PropertyCategory, PropertyLead, PropertyStatus } from "@/lib/data/types";
 import { formatPrice } from "@/components/property/PropertyCard";
 
@@ -13,7 +11,8 @@ const blankForm = { title: "", neighborhood: "", price: "", category: "SALE" as 
 
 export function AgentDashboard(): JSX.Element {
   const [session, setSession] = useState<AccountSession | null>(null);
-  const [properties, setProperties] = useState<Property[]>(seedProperties);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [properties, setProperties] = useState<Property[]>([]);
   const [leads, setLeads] = useState<PropertyLead[]>([]);
   const [tab, setTab] = useState<"listings" | "leads">("listings");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -22,21 +21,34 @@ export function AgentDashboard(): JSX.Element {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    setProperties(readProperties());
-    setLeads(readLeads());
-    fetch("/api/auth/profile", { cache: "no-store" })
-      .then(async (response) => response.ok ? response.json() as Promise<AccountSession> : null)
-      .then((profile) => setSession(profile))
-      .catch(() => setSession(null));
+    let cancelled = false;
+    async function loadWorkspace() {
+      try {
+        const profileResponse = await fetch("/api/auth/profile", { cache: "no-store" });
+        if (!profileResponse.ok) return;
+        const profile = await profileResponse.json() as AccountSession;
+        if (cancelled) return;
+        setSession(profile);
+        if (profile.role === "CLIENT") return;
+        const [listingResponse, inquiryResponse] = await Promise.all([
+          fetch("/api/listings", { cache: "no-store" }),
+          fetch("/api/inquiries", { cache: "no-store" }),
+        ]);
+        if (listingResponse.ok) setProperties(await listingResponse.json() as Property[]);
+        if (inquiryResponse.ok) setLeads(await inquiryResponse.json() as PropertyLead[]);
+        else setNotice("Unable to load inquiries right now.");
+      } catch {
+        if (!cancelled) setNotice("Unable to load workspace data. Please refresh and try again.");
+      } finally {
+        if (!cancelled) setCheckingSession(false);
+      }
+    }
+    void loadWorkspace();
+    return () => { cancelled = true; };
   }, []);
 
   const visibleProperties = useMemo(() => properties.filter((property) => `${property.title} ${property.neighborhood}`.toLowerCase().includes(search.toLowerCase())), [properties, search]);
   const liveCount = properties.filter((property) => property.status === "PUBLISHED").length;
-
-  function persist(next: Property[]) {
-    setProperties(next);
-    writeProperties(next);
-  }
 
   function resetForm() { setEditingId(null); setForm(blankForm); }
 
@@ -46,37 +58,77 @@ export function AgentDashboard(): JSX.Element {
     document.getElementById("listing-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  function saveProperty(event: React.FormEvent<HTMLFormElement>) {
+  async function saveProperty(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const title = form.title.trim();
     const neighborhood = form.neighborhood.trim();
-    const existing = properties.find((property) => property.id === editingId);
-    const slug = existing?.slug ?? `${neighborhood}-${title}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const property: Property = {
-      id: editingId ?? `custom-${crypto.randomUUID()}`, slug, title, neighborhood, location: `${neighborhood}, Luanda`, city: "Luanda",
-      price: Number(form.price), category: form.category, beds: Number(form.beds), baths: Number(form.baths), sqft: Number(form.sqft),
-      images: [form.image.trim() || seedProperties[0]!.images[0]!], agentId: existing?.agentId ?? "agent-1", status: existing?.status ?? "DRAFT",
-      description: form.description.trim() || "A thoughtfully presented home in Luanda. Contact our team to learn more.", amenities: existing?.amenities ?? [], yearBuilt: existing?.yearBuilt ?? new Date().getFullYear(), hoaFee: existing?.hoaFee ?? 0,
-      latitude: existing?.latitude ?? 37.7749, longitude: existing?.longitude ?? -122.4194,
-    };
-    persist(editingId ? properties.map((item) => item.id === editingId ? property : item) : [property, ...properties]);
-    setNotice(editingId ? "Listing details updated." : "Draft listing created.");
-    resetForm();
-    window.setTimeout(() => setNotice(""), 3500);
+    try {
+      const response = await fetch(editingId ? `/api/listings/${editingId}` : "/api/listings", {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          neighborhood,
+          category: form.category,
+          price: Number(form.price),
+          beds: Number(form.beds),
+          baths: Number(form.baths),
+          sqft: Number(form.sqft),
+          description: form.description.trim() || "A thoughtfully presented home in Luanda. Contact our team to learn more.",
+          image: form.image.trim(),
+        }),
+      });
+      const result = await response.json() as Property | { error?: string };
+      if (!response.ok) throw new Error("error" in result ? result.error : undefined);
+      const property = result as Property;
+      setProperties((current) => editingId ? current.map((item) => item.id === property.id ? property : item) : [property, ...current]);
+      setNotice(editingId ? "Listing details saved." : "Draft listing saved to the database.");
+      resetForm();
+    } catch (error) {
+      setNotice(error instanceof Error && error.message ? error.message : "Unable to save listing. Please try again.");
+    }
   }
 
-  function toggleStatus(property: Property) {
-    persist(properties.map((item) => item.id === property.id ? { ...item, status: item.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED" } : item));
+  async function toggleStatus(property: Property) {
+    try {
+      const response = await fetch(`/api/listings/${property.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: property.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED" }),
+      });
+      const result = await response.json() as Property | { error?: string };
+      if (!response.ok) throw new Error("error" in result ? result.error : undefined);
+      setProperties((current) => current.map((item) => item.id === property.id ? result as Property : item));
+    } catch (error) {
+      setNotice(error instanceof Error && error.message ? error.message : "Unable to change listing status.");
+    }
   }
 
-  function removeProperty(property: Property) {
+  async function removeProperty(property: Property) {
     if (!window.confirm(`Delete “${property.title}”? This cannot be undone.`)) return;
-    persist(properties.filter((item) => item.id !== property.id));
-    if (editingId === property.id) resetForm();
+    try {
+      const response = await fetch(`/api/listings/${property.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const result = await response.json() as { error?: string };
+        throw new Error(result.error ?? "Unable to delete listing.");
+      }
+      setProperties((current) => current.filter((item) => item.id !== property.id));
+      if (editingId === property.id) resetForm();
+    } catch (error) {
+      setNotice(error instanceof Error && error.message ? error.message : "Unable to delete listing.");
+    }
   }
 
-  function refreshLeads() { setLeads(readLeads()); }
+  async function refreshLeads() {
+    try {
+      const response = await fetch("/api/inquiries", { cache: "no-store" });
+      if (!response.ok) throw new Error("Unable to refresh inquiries.");
+      setLeads(await response.json() as PropertyLead[]);
+    } catch {
+      setNotice("Unable to refresh inquiries. Please try again.");
+    }
+  }
 
+  if (checkingSession) return <main className="grid min-h-[70vh] place-items-center bg-[#faf9f6] px-5 text-sm text-stone-500">Loading your workspace…</main>;
   if (session === null) return <main className="grid min-h-[70vh] place-items-center bg-[#faf9f6] px-5"><div className="max-w-md rounded-[22px] border border-stone-200 bg-white p-8 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-[#e7ece6] text-[#476557]"><Building2 className="size-5" /></span><h1 className="mt-5 font-serif text-3xl text-[#243c35]">Your Dorisbrao workspace</h1><p className="mt-3 text-sm leading-6 text-stone-500">Sign in as an agent or administrator to manage listings and incoming inquiries.</p><Link href="/login" className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#243c35] px-6 py-3.5 text-xs font-semibold text-white">Sign in to continue <ArrowUpRight className="size-4" /></Link></div></main>;
   if (session.role === "CLIENT") return <main className="grid min-h-[70vh] place-items-center bg-[#faf9f6] px-5"><div className="max-w-md rounded-[22px] border border-stone-200 bg-white p-8 text-center"><h1 className="font-serif text-3xl text-[#243c35]">This is an agent workspace.</h1><p className="mt-3 text-sm leading-6 text-stone-500">Your account is set up for home searches. Contact Dorisbrao if you need agent access.</p><div className="mt-6 flex justify-center"><Link href="/search" className="rounded-full border border-stone-300 px-5 py-3 text-xs font-semibold text-[#243c35]">Explore homes</Link></div></div></main>;
 
@@ -106,10 +158,10 @@ export function AgentDashboard(): JSX.Element {
           <label className="block"><span className="form-label">Cover image URL <span className="font-normal text-stone-400">(optional)</span></span><input type="url" maxLength={1000} value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} className="form-control" placeholder="https://…" /></label>
           <label className="block"><span className="form-label">Property description</span><textarea rows={3} maxLength={1800} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="form-control resize-y" placeholder="What makes this home special?" /></label>
           <button type="submit" className="mt-1 inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#243c35] text-xs font-semibold text-white">{editingId ? "Save changes" : "Save as draft"}<ArrowDownToLine className="size-4" /></button>
-          <p className="text-center text-[9px] leading-4 text-stone-400">Demo listings are saved in this browser. Publish to make them appear in search results.</p>
+          <p className="text-center text-[9px] leading-4 text-stone-400">Listings are saved to Dorisbrao’s database. Drafts stay private until published.</p>
         </form></section>
       </div> : <section className="mt-5 overflow-hidden rounded-2xl border border-stone-200 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 p-5"><div><h2 className="font-serif text-xl text-[#243c35]">Client inquiries</h2><p className="mt-1 text-[10px] text-stone-400">Tour requests and messages submitted from property pages.</p></div><button onClick={refreshLeads} className="rounded-full border border-stone-200 px-4 py-2 text-[10px] font-semibold text-stone-600">Refresh inbox</button></div>{leads.length > 0 ? <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="bg-[#f7f6f2] text-[9px] font-semibold uppercase tracking-[.13em] text-stone-400"><tr><th className="px-5 py-3">Client</th><th className="px-5 py-3">Property</th><th className="px-5 py-3">Request</th><th className="px-5 py-3">Message</th><th className="px-5 py-3">Received</th></tr></thead><tbody className="divide-y divide-stone-100">{leads.map((lead) => <tr key={lead.id} className="text-xs"><td className="px-5 py-4"><p className="font-semibold text-[#243c35]">{lead.name}</p><a href={`mailto:${lead.email}`} className="mt-1 block text-[10px] text-stone-500 underline">{lead.email}</a>{lead.phone && <a href={`tel:${lead.phone}`} className="mt-1 block text-[10px] text-stone-500">{lead.phone}</a>}</td><td className="max-w-[190px] px-5 py-4 text-stone-600">{lead.propertyTitle}</td><td className="px-5 py-4"><span className="rounded-full bg-[#e4eee5] px-2.5 py-1 text-[9px] font-semibold text-[#476557]">{lead.type === "TOUR" ? "Tour request" : "Message"}</span></td><td className="max-w-[240px] px-5 py-4 text-[10px] leading-5 text-stone-500">{lead.message}</td><td className="px-5 py-4 text-[10px] text-stone-500">{new Date(lead.createdAt).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="grid min-h-72 place-items-center px-5 text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-full bg-[#e7ece6] text-[#476557]"><Inbox className="size-5" /></span><h3 className="mt-4 font-serif text-2xl text-[#243c35]">Your inbox is clear.</h3><p className="mt-2 max-w-sm text-xs leading-5 text-stone-500">When someone requests a tour or sends a message from a listing, their details will appear here.</p><button onClick={() => setTab("listings")} className="mt-5 text-xs font-semibold text-[#476557] underline underline-offset-4">Back to listings</button></div></div>}</section>}
-      <p className="mt-6 text-center text-[9px] text-stone-400">Your verified account role is managed by Dorisbrao. Listing and inquiry workspace data is still stored in this browser.</p>
+      <p className="mt-6 text-center text-[9px] text-stone-400">Listings and inquiries are shared securely through Dorisbrao’s database.</p>
     </div>
   </main>;
 }

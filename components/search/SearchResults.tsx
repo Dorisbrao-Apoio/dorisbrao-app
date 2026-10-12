@@ -5,15 +5,15 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Heart, SlidersHorizontal, X } from "lucide-react";
 
 import { PropertyCard } from "@/components/property/PropertyCard";
-import { readProperties, readSavedPropertyIds, SAVED_PROPERTIES_CHANGED } from "@/lib/data/browser-store";
-import { seedProperties } from "@/lib/data/properties";
+import { readSavedPropertyIds, SAVED_PROPERTIES_CHANGED } from "@/lib/data/browser-store";
 import type { Property, PropertyCategory } from "@/lib/data/types";
 
 type InitialFilters = { location: string; category: string; beds: string; baths: string; maxPrice: string; savedOnly: boolean };
 const amenityOptions = ["Garden", "Garage", "Pool", "Bay views", "Pet friendly", "In-unit laundry"];
 
 export function SearchResults({ initialFilters }: { initialFilters: InitialFilters }): JSX.Element {
-  const [properties, setProperties] = useState<Property[]>(seedProperties);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [location, setLocation] = useState(initialFilters.location);
   const [category, setCategory] = useState(initialFilters.category || "ALL");
@@ -26,11 +26,18 @@ export function SearchResults({ initialFilters }: { initialFilters: InitialFilte
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   useEffect(() => {
-    setProperties(readProperties());
+    const controller = new AbortController();
+    fetch("/api/listings", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load homes.");
+        setProperties(await response.json() as Property[]);
+      })
+      .catch(() => { if (!controller.signal.aborted) setProperties([]); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     setSavedIds(readSavedPropertyIds());
     const refreshSaved = () => setSavedIds(readSavedPropertyIds());
     window.addEventListener(SAVED_PROPERTIES_CHANGED, refreshSaved);
-    return () => window.removeEventListener(SAVED_PROPERTIES_CHANGED, refreshSaved);
+    return () => { controller.abort(); window.removeEventListener(SAVED_PROPERTIES_CHANGED, refreshSaved); };
   }, []);
 
   const filtered = useMemo(() => properties.filter((property) => {
@@ -67,13 +74,14 @@ export function SearchResults({ initialFilters }: { initialFilters: InitialFilte
   </div>;
 
   return <main className="min-h-screen bg-[#faf9f6]">
-    <section className="border-b border-stone-200 bg-[#f0eee8]"><div className="mx-auto max-w-[1440px] px-5 py-9 sm:px-8 sm:py-12 lg:px-12"><p className="eyebrow">Dorisbrao property collection</p><div className="mt-3 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="font-serif text-4xl tracking-tight text-[#243c35] sm:text-5xl">Find your <em>place.</em></h1><p className="mt-3 text-sm text-stone-500">Homes chosen with care, in neighborhoods worth knowing.</p></div><Link href="/signup?role=AGENT" className="inline-flex items-center gap-2 text-xs font-semibold text-[#243c35]">List with Dorisbrao <ArrowUpRight className="size-4" /></Link></div></div></section>
+    <section className="border-b border-stone-200 bg-[#f0eee8]"><div className="mx-auto max-w-[1440px] px-5 py-9 sm:px-8 sm:py-12 lg:px-12"><p className="eyebrow">Dorisbrao property collection</p><div className="mt-3 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="font-serif text-4xl tracking-tight text-[#243c35] sm:text-5xl">Find your <em>place.</em></h1><p className="mt-3 text-sm text-stone-500">Homes chosen with care, in neighborhoods worth knowing.</p></div><Link href="/login" className="inline-flex items-center gap-2 text-xs font-semibold text-[#243c35]">List with Dorisbrao <ArrowUpRight className="size-4" /></Link></div></div></section>
     <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-12">
       <div className="mb-6 flex items-center justify-between"><p className="text-sm text-stone-500"><span className="font-semibold text-[#243c35]">{filtered.length}</span> homes to explore</p><button onClick={() => setMobileFiltersOpen(true)} className="inline-flex items-center gap-2 rounded-full border border-stone-300 px-4 py-2.5 text-xs font-semibold text-[#243c35] lg:hidden"><SlidersHorizontal className="size-4" />Filters</button></div>
       <div className="grid gap-8 lg:grid-cols-[245px_1fr]">
         <aside className="hidden rounded-2xl border border-stone-200 bg-[#f7f6f2] p-5 lg:block">{filters}</aside>
         <div className="grid content-start gap-5 sm:grid-cols-2 xl:grid-cols-3">{filtered.map((property) => <PropertyCard key={property.id} property={property} />)}
-          {filtered.length === 0 && <div className="col-span-full grid min-h-72 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white px-6 text-center"><div><p className="font-serif text-2xl text-[#243c35]">No homes found just yet.</p><p className="mt-2 text-sm text-stone-500">Try adjusting a filter or clear your search to see everything.</p><button onClick={clearFilters} className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#243c35] px-5 py-3 text-xs font-semibold text-white">Clear filters <ArrowUpRight className="size-4" /></button></div></div>}
+          {loading && <div className="col-span-full grid min-h-72 place-items-center text-sm text-stone-500">Loading homes…</div>}
+          {!loading && filtered.length === 0 && <div className="col-span-full grid min-h-72 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white px-6 text-center"><div><p className="font-serif text-2xl text-[#243c35]">No homes found just yet.</p><p className="mt-2 text-sm text-stone-500">Try adjusting a filter or clear your search to see everything.</p><button onClick={clearFilters} className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#243c35] px-5 py-3 text-xs font-semibold text-white">Clear filters <ArrowUpRight className="size-4" /></button></div></div>}
         </div>
       </div>
     </div>
