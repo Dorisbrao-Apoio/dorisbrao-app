@@ -7,6 +7,10 @@ export function Footer(): JSX.Element {
       <div>
         <Link href="/" className="font-serif text-3xl tracking-tight">Dorisbrao <span className="font-sans text-[10px] font-semibold uppercase tracking-[.24em] text-white/55">real estate</span></Link>
         <p className="mt-5 max-w-xs text-sm leading-6 text-white/60">A better way to find where life happens. Local knowledge, thoughtful service, and homes with a sense of place in Angola.</p>
+        <address className="mt-5 not-italic text-sm leading-6 text-white/70">
+          Rua Marien N'Gouabi 187, Edifício Baía de Luanda, 8.º Andar<br />
+          Ingombota, Luanda, Angola
+        </address>
       </div>
       <div><p className="mb-4 text-[10px] font-semibold uppercase tracking-[.2em] text-white/45">Explore</p><div className="grid gap-3 text-sm text-white/75"><Link href="/search">Homes for sale</Link><Link href="/search?category=RENT">Homes for rent</Link><a href="/#neighborhoods">Neighborhoods</a></div></div>
       <div><p className="mb-4 text-[10px] font-semibold uppercase tracking-[.2em] text-white/45">Dorisbrao</p><div className="grid gap-3 text-sm text-white/75"><Link href="/dashboard">Agent workspace</Link><Link href="/signup?role=AGENT">Join our team</Link><a href="mailto:hello@dorisbrao.com">Contact us</a></div></div>
